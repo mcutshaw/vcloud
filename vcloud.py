@@ -17,7 +17,6 @@ class vcloud:
         self.session_url='%s/sessions' % self.api
         self.query_url='%s/query' % self.api
         
-
         self.headers={'Accept': 'application/*+xml;version=30.0'}
         self._set_auth_token()
 
@@ -36,7 +35,6 @@ class vcloud:
     def getCatalog(self, name):
         resp = requests.get(url=self.api+'/catalogs/query?filter=name=='+ name,headers=self.headers)
         xml_content = resp.text.encode('utf-8')
-        #print(xml_content.decode('utf-8'))
         parser = etree.XMLParser(ns_clean=True, recover=True)
         tree = etree.fromstring(bytes(xml_content), parser=parser)
         result = tree.find('{*}CatalogRecord')
@@ -73,7 +71,6 @@ class VAppTemplate:
 
         resp = requests.put(url=self.api+'/vAppTemplate/'+self.id+'/leaseSettingsSection', data=leaseSection, headers=self.headers)
         
-
 class Catalog:
     def __init__(self, dict, vcloud):
         self.vcloud = vcloud
@@ -92,7 +89,7 @@ class Catalog:
             setattr(self, name, None)
         
     def getTemplates(self, filter='*'):
-        resp = requests.get(url=self.api+'/vAppTemplates/query?pageSize=128&filter=(catalogName=='+self.name+';name=='+ filter+')',headers=self.headers)
+        resp = requests.get(url=self.api+'/vAppTemplates/query?pageSize=128&filter=(name=='+ filter+')',headers=self.headers)
         xml_content = resp.text.encode('utf-8')
         parser = etree.XMLParser(ns_clean=True, recover=True)
         tree = etree.fromstring(bytes(xml_content), parser=parser)
