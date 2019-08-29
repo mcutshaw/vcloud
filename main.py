@@ -12,4 +12,5 @@ vdc = vcloud.getVdc(config['Renew']['Vdc'])
 for filt in filters:
     templates = defsec.getTemplates(filter=filt)
     for template in templates:
-            template.deploy(vdc, name='testingdeploy_1'+vdc.id)
+            v = template.deploy(vdc)
+            v.delete()
