@@ -8,9 +8,12 @@ filters = config['Renew']['Filters'].split(',')
 vcloud = vcloud(config)
 defsec = vcloud.getCatalog(config['Renew']['Catalog'])
 vdc = vcloud.getVdc(config['Renew']['Vdc'])
+org = vcloud.getOrg(config['Main']['Org'])
+role = org.getRole(config['Deploy']['Role'])
 
-for filt in filters:
-    templates = defsec.getTemplates(filter=filt)
-    for template in templates:
-            v = template.deploy(vdc)
-            v.delete()
+
+user = org.importUser("tgsereda",role)
+print(user)
+print(user.name)
+print(user.fullName)
+
