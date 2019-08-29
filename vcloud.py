@@ -50,6 +50,14 @@ class vcloud:
         result = tree.find('{*}OrgVdcRecord')
         return orgVdc(result.attrib, self)
     
+    def getOrg(self, name):
+        resp = requests.get(url=self.api+'/admin/orgs/query?filter=name=='+name,headers=self.headers)
+        xml_content = resp.text.encode('utf-8')
+        parser = etree.XMLParser(ns_clean=True, recover=True)
+        tree = etree.fromstring(bytes(xml_content), parser=parser)
+        result = tree.find('{*}OrgRecord')
+        return Org(result.attrib, self)
+    
     def genInstantiateVAppTemplateParams(self, name=None, deploy=False, powerOn=False, vAppHref=None):
         InstantiateVAppTemplateParams = etree.Element('InstantiateVAppTemplateParams')
         InstantiateVAppTemplateParams.set("xmlns","http://www.vmware.com/vcloud/v1.5")
@@ -125,6 +133,12 @@ class vObject:
                 return True
             time.sleep(checkTime)
 
+    def delete(self, timeout=60, checkTime=5):
+        self.waitOnReady(timeout=timeout, checkTime=checkTime)
+        resp = requests.delete(url=self.path, headers=self.headers)
+        print(resp.text)
+        return resp.status_code
+
 
 class VAppTemplate(vObject):
     def __init__(self, dict, vcloud):
@@ -191,7 +205,9 @@ class Task(vObject):
 class VMTemplate(vObject):
     def __init__(self, dict, vcloud):
         super().__init__(dict, vcloud)
-
+        self.addAttrib('numberOfCatalogs', 'numberOfCatalogs')
+        self.addAttrib('numberOfVApps', 'numberOfVApps')
+        self.addAttrib('numberOfVdcs', 'numberOfVdcs')
         self.addAttrib('org', 'org')
         self.addAttrib('vdc', 'vdc')
 
@@ -208,11 +224,77 @@ class vApp(vObject):
         self.id = self.href.split('/api/vApp/vapp-')[1]
         self.path = self.api+'/vApp/vapp-'+self.id
 
-    def delete(self, timeout=60, checkTime=5):
-        self.waitOnReady(timeout=timeout, checkTime=checkTime)
-        resp = requests.delete(url=self.path, headers=self.headers)
-        print(resp.text)
-        return resp.status_code
+
+class User(vObject):
+    def __init__(self, dict, vcloud):
+        super().__init__(dict, vcloud)
+
+        self.addAttrib('fullName', 'fullName')
+        self.addAttrib('roleNames', 'roleNames')
+        self.addAttrib('isLdapUser', 'isLdapUser')
+
+        self.id = self.href.split('/api/admin/user/')[1]
+        self.path = self.api+'/admin/user/'+self.id
+
+class Role(vObject):
+    def __init__(self, dict, vcloud):
+        super().__init__(dict, vcloud)
+        print(dict)
+        # self.addAttrib('fullName', 'fullName')
+        # self.addAttrib('roleNames', 'roleNames')
+        # self.addAttrib('isLdapUser', 'isLdapUser')
+        self.id = self.href.split('/api/admin/role/')[1]
+        self.path = self.api+'/admin/role/'+self.id
+
+class Org(vObject):
+    def __init__(self, dict, vcloud):
+        super().__init__(dict, vcloud)
+
+        self.addAttrib('numberOfCatalogs', 'numberOfCatalogs')
+        self.addAttrib('numberOfVApps', 'numberOfVApps')
+        self.addAttrib('numberOfVdcs', 'numberOfVdcs')
+
+        self.id = self.href.split('/api/org/')[1]
+        self.path = self.api+'/org/'+self.id
+
+    def getUser(self, name):
+        resp = requests.get(url=self.api+'/query?type=user&filter=name=='+name,headers=self.headers)
+        xml_content = resp.text.encode('utf-8')
+        parser = etree.XMLParser(ns_clean=True, recover=True)
+        tree = etree.fromstring(bytes(xml_content), parser=parser)
+        result = tree.find('{*}UserRecord')
+        return User(result.attrib, self)
+
+    def getRole(self, name):
+        resp = requests.get(url=self.api+'/query?type=role&filter=name=='+name,headers=self.headers)
+        xml_content = resp.text.encode('utf-8')
+        parser = etree.XMLParser(ns_clean=True, recover=True)
+        tree = etree.fromstring(bytes(xml_content), parser=parser)
+        result = tree.find('{*}RoleRecord')
+        if result is None:
+            return None
+        return Role(result.attrib, self)
+
+    def importUser(self, name, role):
+        params = self._generateUserParams(name, role)
+        resp = requests.post(url=self.api +'/admin/org/'+self.id+'/users', headers=self.headers, data=params)
+        xml_content = resp.text.encode('utf-8')
+        parser = etree.XMLParser(ns_clean=True, recover=True)
+        tree = etree.fromstring(bytes(xml_content), parser=parser)
+        return User(tree.attrib, self.vcloud)
+        
+    def _generateUserParams(self, name, role):
+        User = etree.Element('User')
+        User.set("xmlns","http://www.vmware.com/vcloud/v1.5")
+        User.set("name", name)
+            
+        IsEnabled = etree.SubElement(User, "IsEnabled")
+        IsEnabled.text = "true"
+        IsExternal = etree.SubElement(User, "IsExternal")
+        IsExternal.text = "true"
+        Role = etree.SubElement(User, "Role")
+        Role.set("href",role.path)
+        return etree.tostring(User).decode('utf-8')
 
 class Catalog(vObject):
     def __init__(self, dict, vcloud):
