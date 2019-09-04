@@ -66,6 +66,32 @@ class vcloud:
         result = tree.findall('{*}VAppRecord')
 
         return [vApp(vapp.attrib, self) for vapp in result]
+
+    def getEvents(self):
+        l = []
+        for x in range(1,9999):
+            resp = requests.get(url=self.api+'/query?type=event&pageSize=128&page='+str(x), headers=self.headers)
+            xml_content = resp.text.encode('utf-8')
+            parser = etree.XMLParser(ns_clean=True, recover=True)
+            tree = etree.fromstring(bytes(xml_content), parser=parser)
+            result = tree.findall('{*}EventRecord')
+            if result == []:
+                break
+            l += [Event(event.attrib, self) for event in result]
+        return l
+
+    def getTasks(self):
+        l = []
+        for x in range(1,9999):
+            resp = requests.get(url=self.api+'/query?type=task&pageSize=128&page='+str(x), headers=self.headers)
+            xml_content = resp.text.encode('utf-8')
+            parser = etree.XMLParser(ns_clean=True, recover=True)
+            tree = etree.fromstring(bytes(xml_content), parser=parser)
+            result = tree.findall('{*}TaskRecord')
+            if result == []:
+                break
+            l += [Task(task.attrib, self) for task in result]
+        return l
     
     def genInstantiateVAppTemplateParams(self, name=None, deploy=False, powerOn=False, vAppHref=None):
         InstantiateVAppTemplateParams = etree.Element('InstantiateVAppTemplateParams')
@@ -286,6 +312,42 @@ class Role(vObject):
         self.addAttrib('isLdapUser', 'isLdapUser')
         self.id = self.href.split('/api/admin/role/')[1]
         self.path = self.api+'/admin/role/'+self.id
+
+class Event(vObject):
+    def __init__(self, dict, vcloud):
+        super().__init__(dict, vcloud)
+
+        self.addAttrib('entityName', 'entityName')
+        self.addAttrib('entityType', 'entityType')
+        self.addAttrib('eventStatus', 'eventStatus')
+        self.addAttrib('eventType', 'eventType')
+
+        self.addAttrib('entityHref', 'entity')
+
+        self.addAttrib('userName', 'userName')
+        self.addAttrib('eventStatus', 'eventStatus')
+        self.addAttrib('description', 'description')
+        self.addAttrib('eventId', 'id')
+        self.addAttrib('timeStamp', 'timeStamp')
+        #self.path = self.api+'/admin/'+self.id
+
+class Task(vObject):
+    def __init__(self, dict, vcloud):
+        super().__init__(dict, vcloud)
+
+        # self.addAttrib('entityName', 'entityName')
+        # self.addAttrib('entityType', 'entityType')
+        # self.addAttrib('eventStatus', 'eventStatus')
+        # self.addAttrib('eventType', 'eventType')
+
+        # self.addAttrib('entityHref', 'entity')
+
+        # self.addAttrib('userName', 'userName')
+        # self.addAttrib('eventStatus', 'eventStatus')
+        # self.addAttrib('description', 'description')
+        # self.addAttrib('eventId', 'id')
+        # self.addAttrib('timeStamp', 'timeStamp')
+        # self.path = self.api+'/admin/'+self.id
 
 class Org(vObject):
     def __init__(self, dict, vcloud):
