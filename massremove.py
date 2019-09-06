@@ -2,6 +2,8 @@ from vcloud import vcloud
 import configparser
 import time
 
+start_time = time.time()
+
 config = configparser.ConfigParser()
 config.read('vcloud.conf')
 filters = config['Extra']['Filters'].split(',')
@@ -15,3 +17,4 @@ vapps = vcloud.getvApps(config['MassRemove']['Filters'])
 for vapp in vapps:
     vapp.delete()
  
+print("Deploy took", (time.time() - start_time), "seconds.")
