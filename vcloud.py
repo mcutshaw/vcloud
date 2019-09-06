@@ -90,7 +90,6 @@ class vcloud:
             result = tree.findall('{*}TaskRecord')
             if result == []:
                 break
-            print(task.attrib)
             l += [Task(task.attrib, self) for task in result]
         return l
     
@@ -265,7 +264,23 @@ class orgVdc(vObject):
 class Task(vObject):
     def __init__(self, dict, vcloud):
         super().__init__(dict, vcloud)
+
         self.addAttrib('operationName', 'operationName')
+        self.addAttrib('operationFull', 'operationFull')
+        self.addAttrib('ownerName', 'ownerName')
+
+        self.addAttrib('endDate', 'endDate')
+        if self.endDate is not None:
+            self.endDate = datetime.strptime(self.endDate, '%Y-%m-%dT%H:%M:%S.%f%z')
+
+        self.addAttrib('startDate', 'startDate')
+        if self.startDate is not None:
+            self.startDate = datetime.strptime(self.startDate, '%Y-%m-%dT%H:%M:%S.%f%z')
+
+        self.addAttrib('objectType', 'objectType')
+        self.addAttrib('objectName', 'objectName')
+        self.addAttrib('object', 'object')
+
         self.addAttrib('status', 'status')
 
         self.id = self.href.split('/api/task/')[1]
