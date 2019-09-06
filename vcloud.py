@@ -90,6 +90,7 @@ class vcloud:
             result = tree.findall('{*}TaskRecord')
             if result == []:
                 break
+            print(task.attrib)
             l += [Task(task.attrib, self) for task in result]
         return l
     
@@ -122,8 +123,10 @@ class vcloud:
         return etree.tostring(InstantiateVAppTemplateParams).decode('utf-8')
 
 class vObject:
-    def __init__(self, dict, vcloud):
-        self.dict = dict
+    def __init__(self, dictattrib, vcloud):
+        
+        
+        self.dict = dict(dictattrib)
         self.addAttrib('name', 'name')
         self.addAttrib('href', 'href')
 
@@ -156,12 +159,12 @@ class vObject:
             return None
 
     def waitOnReady(self, timeout=60, checkTime=5):
-           for checks in range(int(timeout/checkTime)):
+        for checks in range(int(timeout/checkTime)):
             busy = False
             tasks = self.getTasks()
             if tasks is not None:
                 for task in tasks:
-                    if task.status == 'running':
+                    if task.status == 'running' or task.status == 'queued':
                         busy = True
                         break
             elif tasks is None or busy == False:
@@ -262,7 +265,6 @@ class orgVdc(vObject):
 class Task(vObject):
     def __init__(self, dict, vcloud):
         super().__init__(dict, vcloud)
-
         self.addAttrib('operationName', 'operationName')
         self.addAttrib('status', 'status')
 
@@ -331,24 +333,6 @@ class Event(vObject):
         self.addAttrib('timeStamp', 'timeStamp')
         #self.path = self.api+'/admin/'+self.id
 
-class Task(vObject):
-    def __init__(self, dict, vcloud):
-        super().__init__(dict, vcloud)
-
-        # self.addAttrib('entityName', 'entityName')
-        # self.addAttrib('entityType', 'entityType')
-        # self.addAttrib('eventStatus', 'eventStatus')
-        # self.addAttrib('eventType', 'eventType')
-
-        # self.addAttrib('entityHref', 'entity')
-
-        # self.addAttrib('userName', 'userName')
-        # self.addAttrib('eventStatus', 'eventStatus')
-        # self.addAttrib('description', 'description')
-        # self.addAttrib('eventId', 'id')
-        # self.addAttrib('timeStamp', 'timeStamp')
-        # self.path = self.api+'/admin/'+self.id
-
 class Org(vObject):
     def __init__(self, dict, vcloud):
         super().__init__(dict, vcloud)
@@ -361,6 +345,7 @@ class Org(vObject):
         self.path = self.api+'/org/'+self.id
 
     def getUser(self, name, role=None):
+        name = name.lower()
         resp = requests.get(url=self.api+'/query?type=user&filter=name=='+name,headers=self.headers)
         xml_content = resp.text.encode('utf-8')
         parser = etree.XMLParser(ns_clean=True, recover=True)
