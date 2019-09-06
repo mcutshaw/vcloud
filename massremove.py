@@ -17,4 +17,4 @@ vapps = vcloud.getvApps(config['MassRemove']['Filters'])
 for vapp in vapps:
     vapp.delete()
  
-print("Deploy took", (time.time() - start_time), "seconds.")
+print("Remove took", (time.time() - start_time), "seconds.")
