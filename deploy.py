@@ -3,7 +3,6 @@ import configparser
 import time
 from multiprocessing import Pool
 
-
 def deployToUser(tup):
     user = tup[0]
     template = tup[1]
@@ -29,7 +28,6 @@ if __name__ == '__main__':
     role = org.getRole(config['Deploy']['Role'])
 
     p = Pool(3)
-
 
     templates = catalog.getTemplates(filter='Blank')
     template = templates[0]
