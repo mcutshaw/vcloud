@@ -358,7 +358,7 @@ class vApp(vObject):
         return self
 
     def _suspend(self, timeout=60, checkTime=5): #Method for suspending without undeploying
-        tree = self.undeploy()
+        tree = self._action(self.path + '/power/action/suspend')
         if tree is None:
             return None
         return self
