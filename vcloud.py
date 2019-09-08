@@ -124,7 +124,6 @@ class vcloud:
 class vObject:
     def __init__(self, dictattrib, vcloud):
         
-        
         self.dict = dict(dictattrib)
         self.addAttrib('name', 'name')
         self.addAttrib('href', 'href')
@@ -166,7 +165,7 @@ class vObject:
                     if task.status == 'running' or task.status == 'queued':
                         busy = True
                         break
-            elif tasks is None or busy == False:
+            if tasks is None or busy == False:
                 return True
             time.sleep(checkTime)
 
@@ -204,6 +203,24 @@ class vObject:
         Role = etree.SubElement(User, "Role")
         Role.set("href",role.path)
         return etree.tostring(User).decode('utf-8')
+
+    def _action(self, actionPath, requestType='POST', data=None, timeout=60, checkTime=5):
+        self.waitOnReady(timeout=timeout, checkTime=checkTime)
+        if requestType.upper() == 'POST':
+            resp = requests.post(url=actionPath, headers=self.headers, data=data)
+        if requestType.upper() == 'GET':
+            resp = requests.get(url=actionPath, headers=self.headers)
+        if requestType.upper() == 'DELETE':
+            resp = requests.delete(url=actionPath, headers=self.headers)
+        if requestType.upper() == 'PUT':
+            resp = requests.put(url=actionPath, headers=self.headers, data=data)
+        xml_content = resp.text.encode('utf-8')
+        parser = etree.XMLParser(ns_clean=True, recover=True)
+        tree = etree.fromstring(bytes(xml_content), parser=parser)
+        if 'Error' in tree.tag:
+            print('Error:',tree.attrib['message'])
+            return None
+        return tree
 
 class VAppTemplate(vObject):
     def __init__(self, dict, vcloud):
@@ -308,6 +325,101 @@ class vApp(vObject):
 
         self.id = self.href.split('/api/vApp/vapp-')[1]
         self.path = self.api+'/vApp/vapp-'+self.id
+
+    def powerOn(self, timeout=60, checkTime=5):
+        tree = self._action(self.path + '/power/action/powerOn')
+        if tree is None:
+            return None
+        return self
+
+    def _powerOff(self, timeout=60, checkTime=5): #Hard, method for powering off without undeploying
+        tree = self._action(self.path + '/power/action/powerOff')
+        if tree is None:
+            return None
+        return self
+
+    def powerOff(self, timeout=60, checkTime=5): #Hard, with undeploy
+        result = self.undeploy(timeout=timeout, checkTime=checkTime, powerOffType='powerOff')
+        if result is None:
+            return None
+        return self
+
+    def _shutdown(self, timeout=60, checkTime=5): #Soft, method for powering off without undeploying
+        tree = self._action(self.path + '/power/action/shutdown')
+        if tree is None:
+            return None
+        return self
+    
+    def shutdown(self, timeout=60, checkTime=5): #Soft, with undeploy
+        result = self.undeploy(timeout=timeout, checkTime=checkTime, powerOffType='shutdown')
+        print('Shutdown does not appear to work if all vms do not have vmware tools, use powerOff instead')
+        if result is None:
+            return None
+        return self
+
+    def _suspend(self, timeout=60, checkTime=5): #Method for suspending without undeploying
+        tree = self.undeploy()
+        if tree is None:
+            return None
+        return self
+
+    def suspend(self, timeout=60, checkTime=5): #with undeploy
+        result = self.undeploy(timeout=timeout, checkTime=checkTime, powerOffType='suspend')
+        if result is None:
+            return None
+        return self
+
+    def reset(self, timeout=60, checkTime=5): # hard
+        tree = self._action(self.path + '/power/action/reset')
+        if tree is None:
+            return None
+        return self
+
+    def reboot(self, timeout=60, checkTime=5):
+        tree = self._action(self.path + '/power/action/reboot')
+        if tree is None:
+            return None
+        return self
+
+    def unsuspend(self, timeout=60, checkTime=5):
+        tree = self._action(self.path + '/action/discardSuspendedState')
+        if tree is None:
+            return None
+        return self
+        
+    def genUndeployParams(self, powerOffType='default'):
+        UndeployVAppParams = etree.Element('UndeployVAppParams')
+        UndeployVAppParams.set("xmlns","http://www.vmware.com/vcloud/v1.5")
+        UndeployPowerAction = etree.SubElement(UndeployVAppParams, "UndeployPowerAction")
+        UndeployPowerAction.text = powerOffType
+        return etree.tostring(UndeployVAppParams).decode('utf-8')
+
+    def undeploy(self, timeout=60, checkTime=5, powerOffType='default'):
+        params = self.genUndeployParams(powerOffType=powerOffType)
+        tree = self._action(self.path +'/action/undeploy', data=params)
+        if tree is None:
+            return None
+        return self
+        
+    def _genSnapshotParams(self):
+        CreateSnapshotParams = etree.Element('CreateSnapshotParams')
+        CreateSnapshotParams.set("xmlns","http://www.vmware.com/vcloud/v1.5")
+        Description = etree.SubElement(CreateSnapshotParams, "Description")
+        Description.text = "Snapshot"
+        return etree.tostring(CreateSnapshotParams).decode('utf-8')
+
+    def snapshot(self):
+        params = self._genSnapshotParams()
+        tree = self._action(self.path +'/action/createSnapshot', data=params)
+        if tree is None:
+            return None
+        return self
+
+    def revert(self):
+        tree = self._action(self.path +'/action/revertToCurrentSnapshot')
+        if tree is None:
+            return None
+        return self
 
 class User(vObject):
     def __init__(self, dict, vcloud):
