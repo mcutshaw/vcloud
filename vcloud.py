@@ -40,7 +40,7 @@ class vcloud:
         parser = etree.XMLParser(ns_clean=True, recover=True)
         tree = etree.fromstring(bytes(xml_content), parser=parser)
         result = tree.find('{*}CatalogRecord')
-        return Catalog(result.attrib, self)
+        return Catalog(result, self)
     
     def getVdc(self, name):
         resp = requests.get(url=self.api+'/query?type=orgVdc&filter=name=='+name,headers=self.headers)
@@ -48,7 +48,7 @@ class vcloud:
         parser = etree.XMLParser(ns_clean=True, recover=True)
         tree = etree.fromstring(bytes(xml_content), parser=parser)
         result = tree.find('{*}OrgVdcRecord')
-        return orgVdc(result.attrib, self)
+        return orgVdc(result, self)
     
     def getOrg(self, name):
         resp = requests.get(url=self.api+'/admin/orgs/query?filter=name=='+name,headers=self.headers)
@@ -56,7 +56,7 @@ class vcloud:
         parser = etree.XMLParser(ns_clean=True, recover=True)
         tree = etree.fromstring(bytes(xml_content), parser=parser)
         result = tree.find('{*}OrgRecord')
-        return Org(result.attrib, self)
+        return Org(result, self)
     
     def getvApps(self, name):
         l = []
@@ -68,7 +68,7 @@ class vcloud:
             result = tree.findall('{*}VAppRecord')
             if result == []:
                     break
-            l += [vApp(vapp.attrib, self) for vm in result]
+            l += [vApp(vapp, self) for vm in result]
         return l
     
     def getVMs(self, name):
@@ -81,7 +81,7 @@ class vcloud:
             result = tree.findall('{*}VMRecord')
             if result == []:
                     break
-            l += [VM(vm.attrib, self) for vm in result]
+            l += [VM(vm, self) for vm in result]
         return l
 
     def getEvents(self):
@@ -94,7 +94,7 @@ class vcloud:
             result = tree.findall('{*}EventRecord')
             if result == []:
                 break
-            l += [Event(event.attrib, self) for event in result]
+            l += [Event(event, self) for event in result]
         return l
 
     def getTasks(self):
@@ -107,7 +107,7 @@ class vcloud:
             result = tree.findall('{*}TaskRecord')
             if result == []:
                 break
-            l += [Task(task.attrib, self) for task in result]
+            l += [Task(task, self) for task in result]
         return l
     
     def genInstantiateVAppTemplateParams(self, name=None, deploy=False, powerOn=False, vAppHref=None):
@@ -141,7 +141,7 @@ class vcloud:
 class vObject:
     def __init__(self, dictattrib, vcloud):
         
-        self.dict = dict(dictattrib)
+        self.dict = dict(dictattrib.attrib)
         self.addAttrib('name', 'name')
         self.addAttrib('href', 'href')
 
@@ -169,7 +169,7 @@ class vObject:
     def getTasks(self):
         tasks = self.getSection('Tasks')
         if tasks is not None:
-            return [Task(task.attrib, self.vcloud) for task in tasks ]
+            return [Task(task, self.vcloud) for task in tasks ]
         else:
             return None
 
@@ -366,7 +366,7 @@ class VAppTemplate(vObject):
         tree = etree.fromstring(bytes(xml_content), parser=parser)
         children = tree.find('{*}Children')
         vms = children.findall('{*}Vm')
-        return [VMTemplate({**self.dict, **template.attrib}, self.vcloud) for template in vms]
+        return [VMTemplate({**self.dict, **template}, self.vcloud) for template in vms]
 
     def deploy(self, vdc, name=None):
         params = self.vcloud.genInstantiateVAppTemplateParams(vAppHref=self.path,name=name)
@@ -378,7 +378,7 @@ class VAppTemplate(vObject):
         if 'Error' in tree.tag:
             print('Error:',tree.attrib['message'])
             return None
-        return vApp(tree.attrib, self.vcloud)
+        return vApp(tree, self.vcloud)
 
 class orgVdc(vObject):
     def __init__(self, dict, vcloud):
@@ -511,7 +511,7 @@ class Org(vObject):
         if result is None and role is not None:
             return self.importUser(name, role)
         elif result is not None:
-            return User(result.attrib, self)
+            return User(result, self)
         else:
             return None
 
@@ -524,7 +524,7 @@ class Org(vObject):
         result = tree.find('{*}RoleRecord')
         if result is None:
             return None
-        return Role(result.attrib, self)
+        return Role(result, self)
 
     def importUser(self, name, role):
         params = self._generateUserParams(name, role)
@@ -535,7 +535,7 @@ class Org(vObject):
         if 'Error' in tree.tag:
             print('Error:',tree.attrib['message'])
             return None
-        return User(tree.attrib, self.vcloud)
+        return User(tree, self.vcloud)
 
 class Catalog(vObject):
     def __init__(self, dict, vcloud):
@@ -551,4 +551,4 @@ class Catalog(vObject):
         parser = etree.XMLParser(ns_clean=True, recover=True)
         tree = etree.fromstring(bytes(xml_content), parser=parser)
         results = tree.findall('{*}VAppTemplateRecord')
-        return [VAppTemplate(template.attrib, self.vcloud) for template in results]
+        return [VAppTemplate(template, self.vcloud) for template in results]
