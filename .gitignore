@@ -3,5 +3,6 @@
 *.conf
 *__pycache__
 *.vscode
-users.txt
+*users.txt
+_*.py
 !example.conf

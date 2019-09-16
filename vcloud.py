@@ -59,13 +59,30 @@ class vcloud:
         return Org(result.attrib, self)
     
     def getvApps(self, name):
-        resp = requests.get(url=self.api+'/query?type=vApp&filter=name=='+name,headers=self.headers)
-        xml_content = resp.text.encode('utf-8')
-        parser = etree.XMLParser(ns_clean=True, recover=True)
-        tree = etree.fromstring(bytes(xml_content), parser=parser)
-        result = tree.findall('{*}VAppRecord')
-
-        return [vApp(vapp.attrib, self) for vapp in result]
+        l = []
+        for x in range(1,9999):
+            resp = requests.get(url=self.api+'/query?type=vApp&filter=name=='+name+'&pageSize=128&page='+str(x),headers=self.headers)
+            xml_content = resp.text.encode('utf-8')
+            parser = etree.XMLParser(ns_clean=True, recover=True)
+            tree = etree.fromstring(bytes(xml_content), parser=parser)
+            result = tree.findall('{*}VAppRecord')
+            if result == []:
+                    break
+            l += [vApp(vapp.attrib, self) for vm in result]
+        return l
+    
+    def getVMs(self, name):
+        l = []
+        for x in range(1,9999):
+            resp = requests.get(url=self.api+'/query?type=vm&filter=isVAppTemplate==false;name=='+name+'&pageSize=128&page='+str(x),headers=self.headers)
+            xml_content = resp.text.encode('utf-8')
+            parser = etree.XMLParser(ns_clean=True, recover=True)
+            tree = etree.fromstring(bytes(xml_content), parser=parser)
+            result = tree.findall('{*}VMRecord')
+            if result == []:
+                    break
+            l += [VM(vm.attrib, self) for vm in result]
+        return l
 
     def getEvents(self):
         l = []
@@ -222,110 +239,7 @@ class vObject:
             return None
         return tree
 
-class VAppTemplate(vObject):
-    def __init__(self, dict, vcloud):
-
-        super().__init__(dict, vcloud)
-
-        self.addAttrib('org', 'org')
-        self.addAttrib('vdc', 'vdc')
-        self.addAttrib('numberOfVMs', 'VMNum')
-
-        self.id = self.href.split('/api/vAppTemplate/')[1]
-        self.path = self.api+'/vAppTemplate/'+self.id
-
-    def renew(self, leaseSecs=7776000):
-        
-        resp = requests.get(url=self.path + '/leaseSettingsSection', headers=self.headers)
-        xml_content = resp.text.encode('utf-8')
-        parser = etree.XMLParser(ns_clean=True, recover=True)
-        tree = etree.fromstring(bytes(xml_content), parser=parser)
-
-        tree.find('{*}StorageLeaseInSeconds').text = str(leaseSecs)
-        leaseSection = etree.tostring(tree, encoding="utf-8", method="xml").decode('utf-8')
-
-        resp = requests.put(url=self.path + '/leaseSettingsSection', data=leaseSection, headers=self.headers)
-
-    def GetVMTemplates(self):
-        resp = requests.get(url=self.api+'/vAppTemplate/'+self.id, headers=self.headers)
-        xml_content = resp.text.encode('utf-8')
-        parser = etree.XMLParser(ns_clean=True, recover=True)
-        tree = etree.fromstring(bytes(xml_content), parser=parser)
-        children = tree.find('{*}Children')
-        vms = children.findall('{*}Vm')
-        return [VMTemplate({**self.dict, **template.attrib}, self.vcloud) for template in vms]
-
-    def deploy(self, vdc, name=None):
-        params = self.vcloud.genInstantiateVAppTemplateParams(vAppHref=self.path,name=name)
-        resp = requests.post(url=self.vcloud.api + '/vdc/'+vdc.id+'/action/instantiateVAppTemplate', headers=self.headers, data=params)
-        xml_content = resp.text.encode('utf-8')
-        parser = etree.XMLParser(ns_clean=True, recover=True)
-        tree = etree.fromstring(bytes(xml_content), parser=parser)
-        
-        if 'Error' in tree.tag:
-            print('Error:',tree.attrib['message'])
-            return None
-        return vApp(tree.attrib, self.vcloud)
-
-class orgVdc(vObject):
-    def __init__(self, dict, vcloud):
-        super().__init__(dict, vcloud)
-
-        self.addAttrib('orgName', 'org')
-        self.addAttrib('numberOfVMs', 'numberOfVMs')
-        self.addAttrib('numberOfVApps', 'numberOfVApps')
-
-        self.id = self.href.split('/api/vdc/')[1]
-        self.path = self.api+'/vdc/'+self.id
-
-class Task(vObject):
-    def __init__(self, dict, vcloud):
-        super().__init__(dict, vcloud)
-
-        self.addAttrib('operationName', 'operationName')
-        self.addAttrib('operationFull', 'operationFull')
-        self.addAttrib('ownerName', 'ownerName')
-
-        self.addAttrib('endDate', 'endDate')
-        if self.endDate is not None:
-            self.endDate = datetime.strptime(self.endDate, '%Y-%m-%dT%H:%M:%S.%f%z')
-
-        self.addAttrib('startDate', 'startDate')
-        if self.startDate is not None:
-            self.startDate = datetime.strptime(self.startDate, '%Y-%m-%dT%H:%M:%S.%f%z')
-
-        self.addAttrib('objectType', 'objectType')
-        self.addAttrib('objectName', 'objectName')
-        self.addAttrib('object', 'object')
-
-        self.addAttrib('status', 'status')
-
-        self.id = self.href.split('/api/task/')[1]
-        self.path = self.api+'/task/'+self.id
-
-class VMTemplate(vObject):
-    def __init__(self, dict, vcloud):
-        super().__init__(dict, vcloud)
-        self.addAttrib('numberOfCatalogs', 'numberOfCatalogs')
-        self.addAttrib('numberOfVApps', 'numberOfVApps')
-        self.addAttrib('numberOfVdcs', 'numberOfVdcs')
-        self.addAttrib('org', 'org')
-        self.addAttrib('vdc', 'vdc')
-
-        self.id = self.href.split('/api/vAppTemplate/vm-')[1]
-        self.path = self.api+'/vAppTemplate/vm-'+self.id
-
-class vApp(vObject):
-    def __init__(self, dict, vcloud):
-        super().__init__(dict, vcloud)
-
-        self.addAttrib('org', 'org')
-        self.addAttrib('vdc', 'vdc')
-        self.addAttrib('owner', 'owner')
-
-        self.id = self.href.split('/api/vApp/vapp-')[1]
-        self.path = self.api+'/vApp/vapp-'+self.id
-
+class alive:
     def powerOn(self, timeout=60, checkTime=5):
         tree = self._action(self.path + '/power/action/powerOn')
         if tree is None:
@@ -420,6 +334,122 @@ class vApp(vObject):
         if tree is None:
             return None
         return self
+
+class VAppTemplate(vObject):
+    def __init__(self, dict, vcloud):
+
+        super().__init__(dict, vcloud)
+
+        self.addAttrib('org', 'org')
+        self.addAttrib('vdc', 'vdc')
+        self.addAttrib('numberOfVMs', 'numberOfVMs')
+
+        self.id = self.href.split('/api/vAppTemplate/')[1]
+        self.path = self.api+'/vAppTemplate/'+self.id
+
+    def renew(self, leaseSecs=7776000):
+        
+        resp = requests.get(url=self.path + '/leaseSettingsSection', headers=self.headers)
+        xml_content = resp.text.encode('utf-8')
+        parser = etree.XMLParser(ns_clean=True, recover=True)
+        tree = etree.fromstring(bytes(xml_content), parser=parser)
+
+        tree.find('{*}StorageLeaseInSeconds').text = str(leaseSecs)
+        leaseSection = etree.tostring(tree, encoding="utf-8", method="xml").decode('utf-8')
+
+        resp = requests.put(url=self.path + '/leaseSettingsSection', data=leaseSection, headers=self.headers)
+
+    def GetVMTemplates(self):
+        resp = requests.get(url=self.api+'/vAppTemplate/'+self.id, headers=self.headers)
+        xml_content = resp.text.encode('utf-8')
+        parser = etree.XMLParser(ns_clean=True, recover=True)
+        tree = etree.fromstring(bytes(xml_content), parser=parser)
+        children = tree.find('{*}Children')
+        vms = children.findall('{*}Vm')
+        return [VMTemplate({**self.dict, **template.attrib}, self.vcloud) for template in vms]
+
+    def deploy(self, vdc, name=None):
+        params = self.vcloud.genInstantiateVAppTemplateParams(vAppHref=self.path,name=name)
+        resp = requests.post(url=self.vcloud.api + '/vdc/'+vdc.id+'/action/instantiateVAppTemplate', headers=self.headers, data=params)
+        xml_content = resp.text.encode('utf-8')
+        parser = etree.XMLParser(ns_clean=True, recover=True)
+        tree = etree.fromstring(bytes(xml_content), parser=parser)
+        
+        if 'Error' in tree.tag:
+            print('Error:',tree.attrib['message'])
+            return None
+        return vApp(tree.attrib, self.vcloud)
+
+class orgVdc(vObject):
+    def __init__(self, dict, vcloud):
+        super().__init__(dict, vcloud)
+
+        self.addAttrib('orgName', 'org')
+        self.addAttrib('numberOfVMs', 'numberOfVMs')
+        self.addAttrib('numberOfVApps', 'numberOfVApps')
+
+        self.id = self.href.split('/api/vdc/')[1]
+        self.path = self.api+'/vdc/'+self.id
+
+class Task(vObject):
+    def __init__(self, dict, vcloud):
+        super().__init__(dict, vcloud)
+
+        self.addAttrib('operationName', 'operationName')
+        self.addAttrib('operationFull', 'operationFull')
+        self.addAttrib('ownerName', 'ownerName')
+
+        self.addAttrib('endDate', 'endDate')
+        if self.endDate is not None:
+            self.endDate = datetime.strptime(self.endDate, '%Y-%m-%dT%H:%M:%S.%f%z')
+
+        self.addAttrib('startDate', 'startDate')
+        if self.startDate is not None:
+            self.startDate = datetime.strptime(self.startDate, '%Y-%m-%dT%H:%M:%S.%f%z')
+
+        self.addAttrib('objectType', 'objectType')
+        self.addAttrib('objectName', 'objectName')
+        self.addAttrib('object', 'object')
+
+        self.addAttrib('status', 'status')
+
+        self.id = self.href.split('/api/task/')[1]
+        self.path = self.api+'/task/'+self.id
+
+class VMTemplate(vObject, alive):
+    def __init__(self, dict, vcloud):
+        super().__init__(dict, vcloud)
+        self.addAttrib('numberOfCatalogs', 'numberOfCatalogs')
+        self.addAttrib('numberOfVApps', 'numberOfVApps')
+        self.addAttrib('numberOfVdcs', 'numberOfVdcs')
+        self.addAttrib('org', 'org')
+        self.addAttrib('vdc', 'vdc')
+
+        self.id = self.href.split('/api/vAppTemplate/vm-')[1]
+        self.path = self.api+'/vAppTemplate/vm-'+self.id
+
+class VM(vObject,alive):
+    def __init__(self, dict, vcloud):
+        super().__init__(dict, vcloud)
+        self.addAttrib('org', 'org')
+        self.addAttrib('vdc', 'vdc')
+        self.addAttrib('owner', 'owner')
+        self.addAttrib('container', 'container')
+        self.id = self.href.split('/api/vApp/vm-')[1]
+        self.path = self.href
+    
+    
+
+class vApp(vObject, alive):
+    def __init__(self, dict, vcloud):
+        super().__init__(dict, vcloud)
+
+        self.addAttrib('org', 'org')
+        self.addAttrib('vdc', 'vdc')
+        self.addAttrib('owner', 'owner')
+
+        self.id = self.href.split('/api/vApp/vapp-')[1]
+        self.path = self.api+'/vApp/vapp-'+self.id
 
 class User(vObject):
     def __init__(self, dict, vcloud):
