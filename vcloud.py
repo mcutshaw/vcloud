@@ -257,7 +257,7 @@ class vObject:
                     acl = self._generateACLParams(user, perms=perms)
                     AccessSettings.append(acl)
             params = etree.tostring(tree)
-            resp = requests.post(url=self.href+'/action/controlAccess', headers=self.headers, data=params)
+            tree = self._action(self.href+'/action/controlAccess', data=params)
 
     def _generateACLParams(self, user, perms="ReadOnly"):
         AccessSetting = etree.Element('AccessSetting')
@@ -304,6 +304,31 @@ class vObject:
         return tree
 
 class alive:
+    def resolveStatus(self):
+        p = {'-1':'FAILED_CREATION',
+        '0':'UNRESOLVED',
+        '1':'RESOLVED',
+        '2':'DEPLOYED',
+        '3':'SUSPENDED',
+        '4':'POWERED_ON',
+        '5':'WAITING_FOR_INPUT',
+        '6':'UNKNOWN',
+        '7':'UNRECOGNIZED',
+        '8':'POWERED_OFF',
+        '9':'INCONSISTENT_STATE',
+        '10':'MIXED',
+        '11':'DESCRIPTOR_PENDING',
+        '12':'COPYING_CONTENTS',
+        '13':'DISK_CONTENTS_PENDING',
+        '14':'QUARANTINED',
+        '15':'QUARANTINE_EXPIRED',
+        '16':'REJECTED',
+        '17':'TRANSFER_TIMEOUT',
+        '18':'VAPP_UNDEPLOYED',
+        '19':'VAPP_PARTIALLY_DEPLOYED'}
+        if str(self.status) in p.keys():
+            self.status = p[str(self.status)]
+
     def powerOn(self, timeout=60, checkTime=5):
         tree = self._action(self.href + '/power/action/powerOn')
         if tree is None:
@@ -511,7 +536,10 @@ class VM(vObject, alive):
         self.addAttrib('vdc', 'vdc')
         self.addAttrib('owner', 'owner')
         self.addAttrib('container', 'container')
+        self.addAttrib('status', 'status')
         self.id = self.href.split('/api/vApp/vm-')[1]
+
+        self.resolveStatus()
 
     def lastOpened(self):
         tasks = self.vcloud.getTasks('jobAcquireScreenTicket', object=self.href)
@@ -528,8 +556,37 @@ class vApp(vObject, alive):
         self.addAttrib('org', 'org')
         self.addAttrib('vdc', 'vdc')
         self.addAttrib('owner', 'owner')
+        self.addAttrib('status', 'status')
+        self.resolveStatus()
 
         self.id = self.href.split('/api/vApp/vapp-')[1]
+
+    def capture(self, catalog, name=None, descriptionText=''):
+        resp = self._action(catalog.href+'/action/captureVApp', data=self._generateCaptureParams(name, descriptionText))
+        return Task(resp, self.vcloud)
+
+    def _generateCaptureParams(self, name, descriptionText):
+        CaptureVAppParams = etree.Element('CaptureVAppParams')
+        CaptureVAppParams.set("xmlns","http://www.vmware.com/vcloud/v1.5")
+
+        if name is None:
+            CaptureVAppParams.set("name",self.name)
+
+        else:
+            CaptureVAppParams.set("name",name)
+
+        Description = etree.SubElement(CaptureVAppParams, "Description")
+        Description.text = descriptionText
+
+        Source = etree.SubElement(CaptureVAppParams, "Source")
+        Source.set('href', self.href)
+
+        CustomizationSection = etree.SubElement(CaptureVAppParams, "CustomizationSection")
+        Info = etree.SubElement(CustomizationSection, "{http://schemas.dmtf.org/ovf/envelope/1}Info")
+        CustomizeOnInstantiate = etree.SubElement(CustomizationSection, "CustomizeOnInstantiate")
+        CustomizeOnInstantiate.text = 'true'
+
+        return etree.tostring(CaptureVAppParams).decode('utf-8')
 
     def getVMs(self):
         resp = requests.get(url=self.href, headers=self.headers)
