@@ -49,6 +49,19 @@ class vcloud:
         tree = etree.fromstring(bytes(xml_content), parser=parser)
         result = tree.find('{*}OrgVdcRecord')
         return orgVdc(result, self)
+
+    def getOrgNetworks(self, name):
+        l = []
+        for x in range(1,9999):
+            resp = requests.get(url=self.api+'/query?type=orgNetwork&filter=name=='+name+'&pageSize=128&page='+str(x),headers=self.headers)
+            xml_content = resp.text.encode('utf-8')
+            parser = etree.XMLParser(ns_clean=True, recover=True)
+            tree = etree.fromstring(bytes(xml_content), parser=parser)
+            result = tree.findall('{*}OrgNetworkRecord')
+            if result == []:
+                    break
+            l += [network(Network, self) for Network in result]
+        return l
     
     def getOrg(self, name):
         resp = requests.get(url=self.api+'/admin/orgs/query?filter=name=='+name,headers=self.headers)
@@ -68,7 +81,7 @@ class vcloud:
             result = tree.findall('{*}VAppRecord')
             if result == []:
                     break
-            l += [vApp(vapp, self) for vm in result]
+            l += [vApp(vapp, self) for vapp in result]
         return l
     
     def getVMs(self, name):
@@ -97,10 +110,13 @@ class vcloud:
             l += [Event(event, self) for event in result]
         return l
 
-    def getTasks(self):
+    def getTasks(self, name, object=None):
         l = []
         for x in range(1,9999):
-            resp = requests.get(url=self.api+'/query?type=task&pageSize=128&page='+str(x), headers=self.headers)
+            if object is not None:
+                resp = requests.get(url=self.api+'/query?type=task&filter=name=='+name+';object=='+object+'&pageSize=128&page='+str(x), headers=self.headers)
+            else:
+                resp = requests.get(url=self.api+'/query?type=task&filter=name=='+name+'&pageSize=128&page='+str(x), headers=self.headers)
             xml_content = resp.text.encode('utf-8')
             parser = etree.XMLParser(ns_clean=True, recover=True)
             tree = etree.fromstring(bytes(xml_content), parser=parser)
@@ -142,6 +158,7 @@ class vObject:
     def __init__(self, dictattrib, vcloud):
         
         self.dict = dict(dictattrib.attrib)
+
         self.addAttrib('name', 'name')
         self.addAttrib('href', 'href')
 
@@ -156,9 +173,26 @@ class vObject:
             setattr(self, name, None)
 
     def getXML(self):
-        resp = requests.get(url=self.path, headers=self.headers)
+        resp = requests.get(url=self.href, headers=self.headers)
         xml_content = resp.text.encode('utf-8')
         return xml_content
+
+    
+    def genAttrib(self):
+        xml_content = self.getXML()
+        parser = etree.XMLParser(ns_clean=True, recover=True)
+        tree = etree.fromstring(bytes(xml_content), parser=parser)
+        self.dict = dict(tree.attrib)
+        for key in self.dict:
+            self.addAttrib(key, key)
+        
+        for child in tree:
+            string = child.tag
+            string = string.split('}')[1]
+            print(string)
+            setattr(self, string, d)
+            d = dict(child.attrib)
+
 
     def getSection(self, section):
         xml_content = self.getXML()
@@ -188,7 +222,7 @@ class vObject:
 
     def delete(self, timeout=60, checkTime=5):
         self.waitOnReady(timeout=timeout, checkTime=checkTime)
-        resp = requests.delete(url=self.path, headers=self.headers)
+        resp = requests.delete(url=self.href, headers=self.headers)
         return resp.status_code
 
     def changeOwner(self, user, timeout=60, checkTime=5):
@@ -208,6 +242,36 @@ class vObject:
         User.set("type","application/vnd.vmware.admin.user+xml")
         return etree.tostring(Owner).decode('utf-8')
 
+
+    def addUsers(self, users=None, timeout=60, checkTime=5, perms="ReadOnly"):
+            resp = requests.get(url=self.href+'/controlAccess', headers=self.headers)
+            xml_content = resp.text.encode('utf-8')
+            parser = etree.XMLParser(ns_clean=True, recover=True)
+            tree = etree.fromstring(bytes(xml_content), parser=parser)
+            AccessSettings = tree.find('{*}AccessSettings')
+            if AccessSettings == None:
+                AccessSettings = etree.SubElement(tree, "AccessSettings")
+            self.waitOnReady(timeout=timeout, checkTime=checkTime)
+            if users is not None:
+                for user in users:
+                    acl = self._generateACLParams(user, perms=perms)
+                    AccessSettings.append(acl)
+            params = etree.tostring(tree)
+            resp = requests.post(url=self.href+'/action/controlAccess', headers=self.headers, data=params)
+
+    def _generateACLParams(self, user, perms="ReadOnly"):
+        AccessSetting = etree.Element('AccessSetting')
+
+        Subject = etree.SubElement(AccessSetting, "Subject")
+        Subject.set("href", user.href)
+        Subject.set("name", user.name)
+        Subject.set("type", "application/vnd.vmware.admin.user+xml")
+
+        AccessLevel = etree.SubElement(AccessSetting, "AccessLevel")
+        AccessLevel.text = perms
+
+        return AccessSetting
+
     def _generateUserParams(self, name, role):
         User = etree.Element('User')
         User.set("xmlns","http://www.vmware.com/vcloud/v1.5")
@@ -218,7 +282,7 @@ class vObject:
         IsExternal = etree.SubElement(User, "IsExternal")
         IsExternal.text = "true"
         Role = etree.SubElement(User, "Role")
-        Role.set("href",role.path)
+        Role.set("href",role.href)
         return etree.tostring(User).decode('utf-8')
 
     def _action(self, actionPath, requestType='POST', data=None, timeout=60, checkTime=5):
@@ -241,13 +305,13 @@ class vObject:
 
 class alive:
     def powerOn(self, timeout=60, checkTime=5):
-        tree = self._action(self.path + '/power/action/powerOn')
+        tree = self._action(self.href + '/power/action/powerOn')
         if tree is None:
             return None
         return self
 
     def _powerOff(self, timeout=60, checkTime=5): #Hard, method for powering off without undeploying
-        tree = self._action(self.path + '/power/action/powerOff')
+        tree = self._action(self.href + '/power/action/powerOff')
         if tree is None:
             return None
         return self
@@ -259,7 +323,7 @@ class alive:
         return self
 
     def _shutdown(self, timeout=60, checkTime=5): #Soft, method for powering off without undeploying
-        tree = self._action(self.path + '/power/action/shutdown')
+        tree = self._action(self.href + '/power/action/shutdown')
         if tree is None:
             return None
         return self
@@ -284,19 +348,19 @@ class alive:
         return self
 
     def reset(self, timeout=60, checkTime=5): # hard
-        tree = self._action(self.path + '/power/action/reset')
+        tree = self._action(self.href + '/power/action/reset')
         if tree is None:
             return None
         return self
 
     def reboot(self, timeout=60, checkTime=5):
-        tree = self._action(self.path + '/power/action/reboot')
+        tree = self._action(self.href + '/power/action/reboot')
         if tree is None:
             return None
         return self
 
     def unsuspend(self, timeout=60, checkTime=5):
-        tree = self._action(self.path + '/action/discardSuspendedState')
+        tree = self._action(self.href + '/action/discardSuspendedState')
         if tree is None:
             return None
         return self
@@ -310,7 +374,7 @@ class alive:
 
     def undeploy(self, timeout=60, checkTime=5, powerOffType='default'):
         params = self.genUndeployParams(powerOffType=powerOffType)
-        tree = self._action(self.path +'/action/undeploy', data=params)
+        tree = self._action(self.href +'/action/undeploy', data=params)
         if tree is None:
             return None
         return self
@@ -324,13 +388,13 @@ class alive:
 
     def snapshot(self):
         params = self._genSnapshotParams()
-        tree = self._action(self.path +'/action/createSnapshot', data=params)
+        tree = self._action(self.href +'/action/createSnapshot', data=params)
         if tree is None:
             return None
         return self
 
     def revert(self):
-        tree = self._action(self.path +'/action/revertToCurrentSnapshot')
+        tree = self._action(self.href +'/action/revertToCurrentSnapshot')
         if tree is None:
             return None
         return self
@@ -345,11 +409,10 @@ class VAppTemplate(vObject):
         self.addAttrib('numberOfVMs', 'numberOfVMs')
 
         self.id = self.href.split('/api/vAppTemplate/')[1]
-        self.path = self.api+'/vAppTemplate/'+self.id
 
     def renew(self, leaseSecs=7776000):
         
-        resp = requests.get(url=self.path + '/leaseSettingsSection', headers=self.headers)
+        resp = requests.get(url=self.href + '/leaseSettingsSection', headers=self.headers)
         xml_content = resp.text.encode('utf-8')
         parser = etree.XMLParser(ns_clean=True, recover=True)
         tree = etree.fromstring(bytes(xml_content), parser=parser)
@@ -357,9 +420,9 @@ class VAppTemplate(vObject):
         tree.find('{*}StorageLeaseInSeconds').text = str(leaseSecs)
         leaseSection = etree.tostring(tree, encoding="utf-8", method="xml").decode('utf-8')
 
-        resp = requests.put(url=self.path + '/leaseSettingsSection', data=leaseSection, headers=self.headers)
+        resp = requests.put(url=self.href + '/leaseSettingsSection', data=leaseSection, headers=self.headers)
 
-    def GetVMTemplates(self):
+    def getVMTemplates(self):
         resp = requests.get(url=self.api+'/vAppTemplate/'+self.id, headers=self.headers)
         xml_content = resp.text.encode('utf-8')
         parser = etree.XMLParser(ns_clean=True, recover=True)
@@ -369,7 +432,7 @@ class VAppTemplate(vObject):
         return [VMTemplate({**self.dict, **template}, self.vcloud) for template in vms]
 
     def deploy(self, vdc, name=None):
-        params = self.vcloud.genInstantiateVAppTemplateParams(vAppHref=self.path,name=name)
+        params = self.vcloud.genInstantiateVAppTemplateParams(vAppHref=self.href,name=name)
         resp = requests.post(url=self.vcloud.api + '/vdc/'+vdc.id+'/action/instantiateVAppTemplate', headers=self.headers, data=params)
         xml_content = resp.text.encode('utf-8')
         parser = etree.XMLParser(ns_clean=True, recover=True)
@@ -389,7 +452,22 @@ class orgVdc(vObject):
         self.addAttrib('numberOfVApps', 'numberOfVApps')
 
         self.id = self.href.split('/api/vdc/')[1]
-        self.path = self.api+'/vdc/'+self.id
+
+class network(vObject):
+    def __init__(self, dict, vcloud):
+        super().__init__(dict, vcloud)
+
+        self.addAttrib('org', 'org')
+        self.addAttrib('type', 'type')
+
+        self.id = self.href.split('/api/network/')[1]
+
+    def update(self):
+        xml_content = self.getXML()
+        parser = etree.XMLParser(ns_clean=True, recover=True)
+        tree = etree.fromstring(bytes(xml_content), parser=parser)
+        return network(tree, self.vcloud)
+         
 
 class Task(vObject):
     def __init__(self, dict, vcloud):
@@ -414,7 +492,6 @@ class Task(vObject):
         self.addAttrib('status', 'status')
 
         self.id = self.href.split('/api/task/')[1]
-        self.path = self.api+'/task/'+self.id
 
 class VMTemplate(vObject, alive):
     def __init__(self, dict, vcloud):
@@ -426,9 +503,8 @@ class VMTemplate(vObject, alive):
         self.addAttrib('vdc', 'vdc')
 
         self.id = self.href.split('/api/vAppTemplate/vm-')[1]
-        self.path = self.api+'/vAppTemplate/vm-'+self.id
 
-class VM(vObject,alive):
+class VM(vObject, alive):
     def __init__(self, dict, vcloud):
         super().__init__(dict, vcloud)
         self.addAttrib('org', 'org')
@@ -436,9 +512,14 @@ class VM(vObject,alive):
         self.addAttrib('owner', 'owner')
         self.addAttrib('container', 'container')
         self.id = self.href.split('/api/vApp/vm-')[1]
-        self.path = self.href
-    
-    
+
+    def lastOpened(self):
+        tasks = self.vcloud.getTasks('jobAcquireScreenTicket', object=self.href)
+        tasks.sort(key=lambda x: x.startDate)
+        if tasks is None or tasks == []:
+            return None
+        else:
+            return(tasks[0].startDate)
 
 class vApp(vObject, alive):
     def __init__(self, dict, vcloud):
@@ -449,7 +530,36 @@ class vApp(vObject, alive):
         self.addAttrib('owner', 'owner')
 
         self.id = self.href.split('/api/vApp/vapp-')[1]
-        self.path = self.api+'/vApp/vapp-'+self.id
+
+    def getVMs(self):
+        resp = requests.get(url=self.href, headers=self.headers)
+        xml_content = resp.text.encode('utf-8')
+        parser = etree.XMLParser(ns_clean=True, recover=True)
+        tree = etree.fromstring(bytes(xml_content), parser=parser)
+        children = tree.find('{*}Children')
+        vms = children.findall('{*}Vm')
+        l = []
+        for vm in vms:
+            l.append(VM(vm, self.vcloud))
+        return l
+    
+    def lastOpened(self):
+        vms = self.getVMs()
+        date = None
+        for vm in vms: 
+            vmDate = vm.lastOpened() 
+            if vmDate is None:
+                continue
+            elif date is None or vmDate > date:
+                date = vmDate
+        return date
+        
+        tasks = self.vcloud.getTasks('jobAcquireScreenTicket', object=self.href)
+        tasks.sort(key=lambda x: x.startDate)
+        if tasks is None or tasks == []:
+            return None
+        else:
+            return(tasks[0].startDate)
 
 class User(vObject):
     def __init__(self, dict, vcloud):
@@ -460,7 +570,6 @@ class User(vObject):
         self.addAttrib('isLdapUser', 'isLdapUser')
 
         self.id = self.href.split('/api/admin/user/')[1]
-        self.path = self.api+'/admin/user/'+self.id
 
 class Role(vObject):
     def __init__(self, dict, vcloud):
@@ -470,7 +579,6 @@ class Role(vObject):
         self.addAttrib('roleNames', 'roleNames')
         self.addAttrib('isLdapUser', 'isLdapUser')
         self.id = self.href.split('/api/admin/role/')[1]
-        self.path = self.api+'/admin/role/'+self.id
 
 class Event(vObject):
     def __init__(self, dict, vcloud):
@@ -488,7 +596,6 @@ class Event(vObject):
         self.addAttrib('description', 'description')
         self.addAttrib('eventId', 'id')
         self.addAttrib('timeStamp', 'timeStamp')
-        #self.path = self.api+'/admin/'+self.id
 
 class Org(vObject):
     def __init__(self, dict, vcloud):
@@ -499,7 +606,6 @@ class Org(vObject):
         self.addAttrib('numberOfVdcs', 'numberOfVdcs')
 
         self.id = self.href.split('/api/org/')[1]
-        self.path = self.api+'/org/'+self.id
 
     def getUser(self, name, role=None):
         name = name.lower()
@@ -514,7 +620,6 @@ class Org(vObject):
             return User(result, self)
         else:
             return None
-
 
     def getRole(self, name):
         resp = requests.get(url=self.api+'/query?type=role&filter=name=='+name,headers=self.headers)
@@ -543,7 +648,6 @@ class Catalog(vObject):
 
         self.addAttrib('orgName', 'org')
         self.id = self.href.split('/api/catalog/')[1]
-        self.path = self.api+'/catalog/'+self.id
         
     def getTemplates(self, filter='*'):
         resp = requests.get(url=self.api+'/vAppTemplates/query?pageSize=128&filter=(name=='+ filter+')',headers=self.headers)

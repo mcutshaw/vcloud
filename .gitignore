@@ -6,3 +6,4 @@
 *users.txt
 _*.py
 !example.conf
+.idea
