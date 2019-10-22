@@ -15,9 +15,8 @@ class vcloud:
         self.host = config['Main']['Host']
         self.org = config['Main']['Org']
 
-        self.api='https://%s/api' % self.host
-        self.session_url='%s/sessions' % self.api
-        self.query_url='%s/query' % self.api
+        self.api=f'https://{self.host}/api'
+        self.session_url=f'{self.api}/sessions'
         
         self.headers={'Accept': 'application/*+xml;version=30.0'}
         self._set_auth_token()
@@ -25,7 +24,7 @@ class vcloud:
     def _set_auth_token(self):
         auth_str = '%s@%s:%s' % (self.user, self.org, self.passwd)
         auth=base64.b64encode(auth_str.encode()).decode('utf-8')
-        self.headers['Authorization'] = 'Basic %s' % auth
+        self.headers['Authorization'] = f'Basic {auth}'
         resp = requests.post(url=self.session_url, headers=self.headers)
         del self.headers['Authorization']
         try:
@@ -189,16 +188,19 @@ class vObject:
         for child in tree:
             string = child.tag
             string = string.split('}')[1]
-            print(string)
             setattr(self, string, d)
             d = dict(child.attrib)
 
 
     def getSection(self, section):
+        tree = self.getETree()
+        return tree.find('{*}'+section)
+
+    def getETree(self):
         xml_content = self.getXML()
         parser = etree.XMLParser(ns_clean=True, recover=True)
         tree = etree.fromstring(bytes(xml_content), parser=parser)
-        return tree.find('{*}'+section)
+        return tree
     
     def getTasks(self):
         tasks = self.getSection('Tasks')
@@ -208,7 +210,7 @@ class vObject:
             return None
 
     def waitOnReady(self, timeout=60, checkTime=5):
-        for checks in range(int(timeout/checkTime)):
+        for _ in range(int(timeout/checkTime)):
             busy = False
             tasks = self.getTasks()
             if tasks is not None:
@@ -300,8 +302,14 @@ class vObject:
         tree = etree.fromstring(bytes(xml_content), parser=parser)
         if 'Error' in tree.tag:
             print('Error:',tree.attrib['message'])
-            return None
+            raise Exception(tree.attrib['message'])
         return tree
+
+    def checkSnapshotExists(self):
+        if self.getSection('SnapshotSection').find('{*}Snapshot') is None:
+            return False
+        else:
+            return True
 
 class alive:
     def resolveStatus(self):
@@ -419,6 +427,7 @@ class alive:
         return self
 
     def revert(self):
+        
         tree = self._action(self.href +'/action/revertToCurrentSnapshot')
         if tree is None:
             return None
@@ -549,6 +558,14 @@ class VM(vObject, alive):
         else:
             return(tasks[0].startDate)
 
+    def checkGuestCustomization(self):
+        string = self.getSection('GuestCustomizationSection').find('{*}Enabled').text
+        if string == 'true':
+            return True
+        else:
+            return False
+        
+
 class vApp(vObject, alive):
     def __init__(self, dict, vcloud):
         super().__init__(dict, vcloud)
@@ -563,7 +580,10 @@ class vApp(vObject, alive):
 
     def capture(self, catalog, name=None, descriptionText=''):
         resp = self._action(catalog.href+'/action/captureVApp', data=self._generateCaptureParams(name, descriptionText))
-        return Task(resp, self.vcloud)
+        if resp is None:
+            return None
+        else:
+            return Task(resp, self.vcloud)
 
     def _generateCaptureParams(self, name, descriptionText):
         CaptureVAppParams = etree.Element('CaptureVAppParams')
@@ -610,13 +630,7 @@ class vApp(vObject, alive):
             elif date is None or vmDate > date:
                 date = vmDate
         return date
-        
-        tasks = self.vcloud.getTasks('jobAcquireScreenTicket', object=self.href)
-        tasks.sort(key=lambda x: x.startDate)
-        if tasks is None or tasks == []:
-            return None
-        else:
-            return(tasks[0].startDate)
+    
 
 class User(vObject):
     def __init__(self, dict, vcloud):
@@ -706,8 +720,12 @@ class Catalog(vObject):
         self.addAttrib('orgName', 'org')
         self.id = self.href.split('/api/catalog/')[1]
         
-    def getTemplates(self, filter='*'):
-        resp = requests.get(url=self.api+'/vAppTemplates/query?pageSize=128&filter=(name=='+ filter+')',headers=self.headers)
+    def getTemplates(self, filter='*', vdc=None):
+        if vdc is not None:
+            resp = requests.get(url=self.api+'/vAppTemplates/query?pageSize=128&filter=(name=='+ filter+';vdc=='+vdc.href+')',headers=self.headers)
+        else:
+            resp = requests.get(url=self.api+'/vAppTemplates/query?pageSize=128&filter=(name=='+ filter+')',headers=self.headers)
+
         xml_content = resp.text.encode('utf-8')
         parser = etree.XMLParser(ns_clean=True, recover=True)
         tree = etree.fromstring(bytes(xml_content), parser=parser)
