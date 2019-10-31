@@ -33,6 +33,23 @@ class vcloud:
             print("Authentication Error! Are you sure your credentials are correct?")
             exit()
 
+    def checkAuth(self, username, password):
+        headers={'Accept': 'application/*+xml;version=30.0'}
+
+        auth_str = f'{username}@{self.org}:{password}'
+        auth=base64.b64encode(auth_str.encode()).decode('utf-8')
+        headers['Authorization'] = f'Basic {auth}'
+        resp = requests.post(url=self.session_url, headers=headers)
+        del username
+        del password
+        del headers['Authorization']
+        try:
+            del resp.headers['x-vcloud-authorization']
+        except KeyError:
+            return False
+        return True
+
+
     def getCatalog(self, name):
         resp = requests.get(url=self.api+'/catalogs/query?filter=name=='+ name,headers=self.headers)
         xml_content = resp.text.encode('utf-8')
