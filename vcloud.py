@@ -647,6 +647,13 @@ class vApp(vObject, alive):
             elif date is None or vmDate > date:
                 date = vmDate
         return date
+
+    def checkGuestCustomization(self):
+        vms = self.getVMs()
+        for vm in vms: 
+            if vm.checkGuestCustomization():
+                return True
+        return False
     
 
 class User(vObject):
