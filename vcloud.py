@@ -99,6 +99,18 @@ class vcloud:
                     break
             l += [vApp(vapp, self) for vapp in result]
         return l
+
+    def getMedia(self, filter='*', vdc=None):
+        if vdc is not None:
+            resp = requests.get(url=self.api+'/query?pageSize=128&type=media&filter=(name=='+ filter+';vdc=='+vdc.href+')',headers=self.headers)
+        else:
+            resp = requests.get(url=self.api+'/query?pageSize=128&type=media&filter=(name=='+ filter+')',headers=self.headers)
+
+        xml_content = resp.text.encode('utf-8')
+        parser = etree.XMLParser(ns_clean=True, recover=True)
+        tree = etree.fromstring(bytes(xml_content), parser=parser)
+        results = tree.findall('{*}MediaRecord')
+        return [Media(media, self) for media in results]
     
     def getVMs(self, name):
         l = []
@@ -328,6 +340,33 @@ class vObject:
         else:
             return True
 
+    def _genRenameParams(self, newName, description=None):
+        CatalogItem = etree.Element('CatalogItem')
+        CatalogItem.set("xmlns","http://www.vmware.com/vcloud/v1.5")
+        CatalogItem.set("name",f"{newName}")
+        if description is None:
+            description = ''
+        Description = etree.SubElement(CatalogItem, "Description")
+        Description.text = description
+
+        Entity = etree.SubElement(CatalogItem, "Entity")
+        Entity.set("href", self.href)
+        return etree.tostring(CatalogItem).decode('utf-8')
+
+    def rename(self, newName, timeout=60, checkTime=5, description=None):
+        xml_content = self.getXML()
+        parser = etree.XMLParser(ns_clean=True, recover=True)
+        tree = etree.fromstring(bytes(xml_content), parser=parser)
+        catalogRel = tree.find("{*}Link[@rel='catalogItem']")
+        href = catalogRel.attrib['href']
+        params = self._genRenameParams( newName, description=None)
+        tree = self._action(href, requestType='PUT', data=params)
+        if tree is None:
+            return None
+        return self
+
+        
+
 class alive:
     def resolveStatus(self):
         p = {'-1':'FAILED_CREATION',
@@ -458,7 +497,6 @@ class VAppTemplate(vObject):
         self.addAttrib('org', 'org')
         self.addAttrib('vdc', 'vdc')
         self.addAttrib('numberOfVMs', 'numberOfVMs')
-
         self.id = self.href.split('/api/vAppTemplate/')[1]
 
     def renew(self, leaseSecs=7776000):
@@ -749,9 +787,48 @@ class Catalog(vObject):
             resp = requests.get(url=self.api+'/vAppTemplates/query?pageSize=128&filter=(name=='+ filter+';vdc=='+vdc.href+')',headers=self.headers)
         else:
             resp = requests.get(url=self.api+'/vAppTemplates/query?pageSize=128&filter=(name=='+ filter+')',headers=self.headers)
-
+        
         xml_content = resp.text.encode('utf-8')
         parser = etree.XMLParser(ns_clean=True, recover=True)
         tree = etree.fromstring(bytes(xml_content), parser=parser)
         results = tree.findall('{*}VAppTemplateRecord')
         return [VAppTemplate(template, self.vcloud) for template in results]
+
+class Media(vObject):
+    def __init__(self, dict, vcloud):
+        super().__init__(dict, vcloud)
+
+        self.addAttrib('catalog', 'catalogHref')
+        self.addAttrib('owner', 'ownerHref')
+        self.addAttrib('vdcName', 'vdcName')
+        self.id = self.href.split('/media/')[1]
+    
+    
+    def _generateCloneParams(self, name, deleteSource=False, description="Empty"):
+        CloneMediaParams = etree.Element('CloneMediaParams')
+        CloneMediaParams.set("xmlns","http://www.vmware.com/vcloud/v1.5")
+        CloneMediaParams.set("name", name)
+            
+        Description = etree.SubElement(CloneMediaParams, "Description")
+        Description.text = description
+
+        Source = etree.SubElement(CloneMediaParams, "Source")
+        Source.set("href",self.href)
+        Source.set("id",self.id)
+        Source.set("type","media")
+        Source.set("name",self.name)
+
+        IsSourceDelete = etree.SubElement(CloneMediaParams, "IsSourceDelete")
+        if deleteSource:
+            IsSourceDelete.text = "true"
+        else:
+            IsSourceDelete.text = "false"
+        return etree.tostring(CloneMediaParams).decode('utf-8')
+
+    def clone(self, name, vdc, deleteSource=False, description="Empty"):
+        resp = self._action(f'{vdc.href}/action/cloneMedia', data=self._generateCloneParams(name, deleteSource=deleteSource, description=description))
+        print(resp.text)
+        if resp is None:
+            return None
+        else:
+            return Media(resp, self.vcloud)
