@@ -1,6 +1,7 @@
-from vcloud import vcloud
 import configparser
 import time
+
+from vcloud import vcloud
 
 start_time = time.time()
 
@@ -13,8 +14,12 @@ vdc = vcloud.getVdc(config['Extra']['Vdc'])
 org = vcloud.getOrg(config['Main']['Org'])
 role = org.getRole(config['Deploy']['Role'])
 
-vapps = vcloud.getvApps(config['MassRemove']['Filters'])
+vapps = []
+for filter in config['MassRemove']['Filters'].split(','):
+    vapps += vcloud.getvApps(filter)
+print(len(vapps))
 for vapp in vapps:
+    print(vapp.name)
     vapp.delete()
- 
+
 print("Remove took", (time.time() - start_time), "seconds.")
