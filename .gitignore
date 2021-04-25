@@ -8,3 +8,6 @@ _*.py
 !__init__.py
 !example.conf
 .idea
+
+/venv/
+*.json
